@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: catalogo_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/catalogo_ci
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependencias (incluye "prisma generate" vía postinstall)
+        run: npm ci
+
+      - name: Instalar cliente psql
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Crear tablas (prisma db push)
+        run: npx prisma db push --skip-generate
+
+      - name: Aplicar funciones y triggers (sql/functions.sql)
+        run: psql "$DATABASE_URL" -f sql/functions.sql
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Pruebas unitarias
+        run: npm run test
+
+      - name: Build de producción
+        run: npm run build

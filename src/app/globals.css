@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-surface text-ink font-body antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display font-semibold tracking-tight;
+  }
+
+  /* Foco visible accesible en toda la app, sin depender del navegador por defecto */
+  :focus-visible {
+    outline: 2px solid theme('colors.brand.DEFAULT');
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Botón principal de conversión (usado por CTAs y WhatsApp) */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded bg-brand px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-hover active:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded border border-surface-border bg-white px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  /* Espaciado de contenedor consistente, mobile-first */
+  .container-app {
+    @apply mx-auto w-full max-w-content px-4 sm:px-6 lg:px-8;
+  }
+}

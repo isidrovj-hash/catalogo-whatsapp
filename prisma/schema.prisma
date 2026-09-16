@@ -1,0 +1,417 @@
+// ============================================================================
+// CATÁLOGO DIGITAL + WHATSAPP — SCHEMA DE BASE DE DATOS (Prisma / PostgreSQL)
+// FASE 2
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// ENUMS
+// ----------------------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  EDITOR
+}
+
+enum AvailabilityStatus {
+  DISPONIBLE
+  POCAS_PIEZAS
+  AGOTADO
+  SOBRE_PEDIDO
+}
+
+enum PriceMode {
+  MOSTRAR_PRECIO
+  SOLICITAR_PRECIO
+}
+
+enum WhatsAppProvider {
+  LINK       // v1: enlaces wa.me (por defecto, sin costo, sin aprobación de Meta)
+  CLOUD_API  // v2: WhatsApp Business Cloud API (envíos proactivos, plantillas aprobadas)
+}
+
+enum CustomerType {
+  PARTICULAR
+  CONTRATISTA
+  EMPRESA
+  CONSTRUCTOR
+  MAYORISTA
+  OTRO
+}
+
+enum LeadStatus {
+  NUEVO
+  CONTACTADO
+  COTIZADO
+  SEGUIMIENTO
+  GANADO
+  PERDIDO
+}
+
+enum LeadOrigin {
+  CATALOGO_WHATSAPP
+  WHATSAPP_PRODUCTO
+  FORMULARIO_CONTACTO
+  OTRO
+}
+
+enum AnalyticsEventType {
+  PRODUCT_VIEW
+  ADD_TO_CART
+  REMOVE_FROM_CART
+  WHATSAPP_PRODUCT_CLICK
+  QUOTE_STARTED
+  QUOTE_SUBMITTED
+  WHATSAPP_QUOTE_CLICK
+  SEARCH
+  CATEGORY_VIEW
+}
+
+// ----------------------------------------------------------------------------
+// USUARIOS ADMIN
+// ----------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(uuid())
+  supabaseId   String   @unique @map("supabase_id") // vincula con Supabase Auth
+  email        String   @unique
+  name         String
+  role         UserRole @default(EDITOR)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  customerNotes CustomerNote[]
+
+  @@map("users")
+}
+
+// ----------------------------------------------------------------------------
+// CATÁLOGO: CATEGORÍAS, MARCAS, PRODUCTOS, GALERÍA
+// ----------------------------------------------------------------------------
+
+model Category {
+  id          String     @id @default(uuid())
+  name        String
+  slug        String     @unique
+  description String?
+  parentId    String?    @map("parent_id")
+  parent      Category?  @relation("CategoryToSubcategory", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[] @relation("CategoryToSubcategory")
+  imageUrl    String?    @map("image_url")
+  active      Boolean    @default(true)
+  sortOrder   Int        @default(0) @map("sort_order")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  products    Product[]
+  promotions  Promotion[]
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Brand {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  slug      String    @unique
+  logoUrl   String?   @map("logo_url")
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  products  Product[]
+
+  @@map("brands")
+}
+
+model Product {
+  id                String              @id @default(uuid())
+  sku               String              @unique
+  name              String
+  slug              String              @unique
+  shortDescription  String?             @map("short_description")
+  description       String?
+  categoryId        String              @map("category_id")
+  category          Category            @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  brandId           String?             @map("brand_id")
+  brand             Brand?              @relation(fields: [brandId], references: [id], onDelete: SetNull)
+
+  price             Decimal             @db.Decimal(10, 2)
+  promoPrice        Decimal?            @map("promo_price") @db.Decimal(10, 2)
+  cost              Decimal?            @db.Decimal(10, 2) // interno, nunca expuesto al frontend público
+  priceMode         PriceMode           @default(MOSTRAR_PRECIO) @map("price_mode")
+
+  unit              String              // ej. "kg", "pieza", "litro"
+  presentation      String              // ej. "Saco 25 kg"
+
+  mainImageUrl      String?             @map("main_image_url")
+  tags              String[]            @default([])
+
+  featured          Boolean             @default(false)
+  onPromotion       Boolean             @default(false) @map("on_promotion")
+  active            Boolean             @default(true)
+
+  metaTitle         String?             @map("meta_title")
+  metaDescription   String?             @map("meta_description")
+
+  searchVector      Unsupported("tsvector")? @map("search_vector")
+
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  images            ProductImage[]
+  inventory         Inventory?
+  quoteItems        QuoteItem[]
+  promotions        Promotion[]
+  analyticsEvents   AnalyticsEvent[]
+
+  relatedFrom       ProductRelation[]   @relation("RelationFrom")
+  relatedTo         ProductRelation[]   @relation("RelationTo")
+
+  @@index([categoryId])
+  @@index([brandId])
+  @@index([active])
+  @@index([featured])
+  @@index([onPromotion])
+  @@map("products")
+}
+
+model ProductImage {
+  id        String   @id @default(uuid())
+  productId String   @map("product_id")
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  altText   String?  @map("alt_text")
+  sortOrder Int      @default(0) @map("sort_order")
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+// Relación producto-relacionado definida manualmente por el admin (sección 47)
+model ProductRelation {
+  id               String   @id @default(uuid())
+  productId        String   @map("product_id")
+  relatedProductId String   @map("related_product_id")
+  product          Product  @relation("RelationFrom", fields: [productId], references: [id], onDelete: Cascade)
+  relatedProduct   Product  @relation("RelationTo", fields: [relatedProductId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, relatedProductId])
+  @@map("product_relations")
+}
+
+// ----------------------------------------------------------------------------
+// SUCURSALES E INVENTARIO
+// ----------------------------------------------------------------------------
+
+model Branch {
+  id           String   @id @default(uuid())
+  name         String
+  address      String
+  city         String
+  state        String
+  phone        String?
+  whatsapp     String?
+  googleMapsUrl String? @map("google_maps_url")
+  schedule     String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("branches")
+}
+
+model Inventory {
+  id                String              @id @default(uuid())
+  productId         String              @unique @map("product_id") // 1:1 en v1; ampliable a 1:N por sucursal después
+  product           Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stock             Int                 @default(0)
+  lowStockThreshold Int                 @default(5) @map("low_stock_threshold")
+  availability      AvailabilityStatus  @default(DISPONIBLE)
+  showExactStock    Boolean             @default(false) @map("show_exact_stock")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  @@map("inventory")
+}
+
+// ----------------------------------------------------------------------------
+// CLIENTES, PROSPECTOS, COTIZACIONES
+// ----------------------------------------------------------------------------
+
+model Customer {
+  id        String       @id @default(uuid())
+  name      String
+  company   String?
+  phone     String
+  email     String?
+  city      String?
+  neighborhood String?   @map("neighborhood")
+  type      CustomerType @default(PARTICULAR)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  leads     Lead[]
+  quotes    Quote[]
+  notes     CustomerNote[]
+
+  @@index([phone])
+  @@map("customers")
+}
+
+// Historial de seguimiento por cliente (sección 41: "Notas" y "Seguimientos").
+// Deliberadamente asociado al CLIENTE, no a una cotización puntual — un
+// vendedor puede anotar contexto ("prefiere que le hablen después de las
+// 5pm") que aplica a toda la relación comercial, no solo a un pedido.
+model CustomerNote {
+  id         String   @id @default(uuid())
+  customerId String   @map("customer_id")
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  authorId   String?  @map("author_id")
+  author     User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  content    String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([customerId])
+  @@map("customer_notes")
+}
+
+model Lead {
+  id             String      @id @default(uuid())
+  customerId     String      @map("customer_id")
+  customer       Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  quoteId        String?     @unique @map("quote_id")
+  quote          Quote?      @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+  status         LeadStatus  @default(NUEVO)
+  origin         LeadOrigin  @default(CATALOGO_WHATSAPP)
+  estimatedTotal Decimal?    @map("estimated_total") @db.Decimal(10, 2)
+  notes          String?
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("leads")
+}
+
+model Quote {
+  id         String      @id @default(uuid())
+  folio      String      @unique // ej. COT-2026-000001
+  customerId String      @map("customer_id")
+  customer   Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  comments   String?
+  subtotal   Decimal     @db.Decimal(10, 2)
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  items      QuoteItem[]
+  lead       Lead?
+
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id         String   @id @default(uuid())
+  quoteId    String   @map("quote_id")
+  quote      Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  productId  String   @map("product_id")
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity   Int
+  unitPrice  Decimal  @map("unit_price") @db.Decimal(10, 2) // snapshot del precio al momento de cotizar
+  subtotal   Decimal  @db.Decimal(10, 2)
+
+  @@index([quoteId])
+  @@map("quote_items")
+}
+
+// ----------------------------------------------------------------------------
+// PROMOCIONES Y BANNERS
+// ----------------------------------------------------------------------------
+
+model Promotion {
+  id         String    @id @default(uuid())
+  name       String
+  description String?
+  startDate  DateTime  @map("start_date")
+  endDate    DateTime  @map("end_date")
+  productId  String?   @map("product_id")
+  product    Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  categoryId String?   @map("category_id")
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  promoPrice Decimal?  @map("promo_price") @db.Decimal(10, 2)
+  imageUrl   String?   @map("image_url")
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([active])
+  @@map("promotions")
+}
+
+model Banner {
+  id        String   @id @default(uuid())
+  title     String
+  subtitle  String?
+  imageUrl  String   @map("image_url")
+  linkUrl   String?  @map("link_url")
+  sortOrder Int      @default(0) @map("sort_order")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("banners")
+}
+
+// ----------------------------------------------------------------------------
+// CONFIGURACIÓN GENERAL (fila única)
+// ----------------------------------------------------------------------------
+
+model BusinessSettings {
+  id                String   @id @default(uuid())
+  businessName      String   @map("business_name")
+  logoUrl           String?  @map("logo_url")
+  heroImageUrl      String?  @map("hero_image_url") // imagen grande de la portada (Hero) del sitio público
+  whatsappNumber    String   @map("whatsapp_number") // formato E.164, ej. 528112345678
+  whatsappProvider  WhatsAppProvider @default(LINK) @map("whatsapp_provider")
+  phone             String?
+  email             String?
+  address           String?
+  city              String?
+  state             String?
+  schedule          String?
+  facebookUrl       String?  @map("facebook_url")
+  instagramUrl      String?  @map("instagram_url")
+  tiktokUrl         String?  @map("tiktok_url")
+  googleMapsUrl     String?  @map("google_maps_url")
+  currency          String   @default("MXN")
+  taxRate           Decimal  @default(0) @map("tax_rate") @db.Decimal(5, 2)
+  minPurchaseAmount Decimal? @map("min_purchase_amount") @db.Decimal(10, 2)
+  freeShippingAmount Decimal? @map("free_shipping_amount") @db.Decimal(10, 2)
+  legalText         String?  @map("legal_text")
+  whatsappMessageBase String? @map("whatsapp_message_base")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("business_settings")
+}
+
+// ----------------------------------------------------------------------------
+// ANALÍTICA COMERCIAL
+// ----------------------------------------------------------------------------
+
+model AnalyticsEvent {
+  id        String             @id @default(uuid())
+  type      AnalyticsEventType
+  productId String?            @map("product_id")
+  product   Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  sessionId String?            @map("session_id")
+  metadata  Json?              // datos libres: término de búsqueda, categoría, etc.
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  @@index([type])
+  @@index([productId])
+  @@index([createdAt])
+  @@map("analytics_events")
+}
